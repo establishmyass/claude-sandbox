@@ -3,6 +3,9 @@
 IMAGE_NAME ?= claude-sandbox
 CONFIG_DIR ?= $(HOME)/.claude-sandbox
 HOST_CLAUDE ?= $(HOME)/.claude
+# Xray release; the SHA below is for the amd64 asset. Override for arm64.
+XRAY_VERSION ?= 26.10.21
+XRAY_SHA256 ?= 0eec3ed4163c273d8c8bf821f7d219e257921cf584aa3fb970715e458e631978
 RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 REPO_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
@@ -13,7 +16,9 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build the image with Podman or Docker
-	$(RUNTIME) build -t $(IMAGE_NAME) .
+	$(RUNTIME) build -t $(IMAGE_NAME) \
+		--build-arg XRAY_VERSION=$(XRAY_VERSION) \
+		--build-arg XRAY_SHA256=$(XRAY_SHA256) .
 
 setup: ## Copy settings, skills, plugins and git config into the sandbox
 	mkdir -p $(CONFIG_DIR)/.claude $(CONFIG_DIR)/.config/gh
