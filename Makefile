@@ -18,6 +18,7 @@ build: ## Build the image with Podman or Docker
 setup: ## Copy settings, skills, plugins and git config into the sandbox
 	mkdir -p $(CONFIG_DIR)/.claude $(CONFIG_DIR)/.config/gh
 	@if [ -f $(HOST_CLAUDE)/settings.json ]; then cp -a $(HOST_CLAUDE)/settings.json $(CONFIG_DIR)/.claude/settings.json; fi
+	@if [ ! -f $(CONFIG_DIR)/.claude/.ponytail-active ]; then printf 'full' > $(CONFIG_DIR)/.claude/.ponytail-active; fi
 	rm -rf $(CONFIG_DIR)/.claude/skills $(CONFIG_DIR)/.claude/plugins
 	@if [ -d $(HOST_CLAUDE)/skills ]; then cp -a $(HOST_CLAUDE)/skills $(CONFIG_DIR)/.claude/skills; fi
 	@if [ -d $(HOST_CLAUDE)/plugins ]; then cp -a $(HOST_CLAUDE)/plugins $(CONFIG_DIR)/.claude/plugins; fi
