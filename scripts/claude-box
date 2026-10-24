@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${IMAGE:-claude-sandbox}"
+CONFIG_DIR="${CLAUDE_SANDBOX_CONFIG:-$HOME/.claude-sandbox}"
+NETWORK="${SANDBOX_NETWORK:-host}"
+PROJECT_NAME="$(basename "$PWD")"
+RUNTIME="${CONTAINER_RUNTIME:-$(command -v podman || command -v docker || true)}"
+
+if [ -z "$RUNTIME" ]; then
+  echo "error: podman or docker is required" >&2
+  exit 1
+fi
+if [ ! -f "$CONFIG_DIR/.claude/settings.json" ]; then
+  echo "error: no sandbox config in $CONFIG_DIR; run 'make setup' in the claude-sandbox repo" >&2
+  exit 1
+fi
+if [ ! -f "$CONFIG_DIR/.claude.json" ]; then
+  : > "$CONFIG_DIR/.claude.json"
+fi
+mkdir -p "$CONFIG_DIR/.config/gh"
+
+if [ -z "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
+  GH_TOKEN="$(gh auth token 2>/dev/null || true)"
+  export GH_TOKEN
+fi
+
+entry=()
+if [ "${1:-}" = "--shell" ]; then
+  entry=(--entrypoint sh)
+  shift
+fi
+
+opts=(
+  run -it --rm
+  --cap-drop=ALL
+  --security-opt=no-new-privileges
+  -v "$PWD:/workspace/$PROJECT_NAME"
+  -v "$CONFIG_DIR:/home/node"
+  --network="$NETWORK"
+  -w "/workspace/$PROJECT_NAME"
+)
+
+if [ "$(basename "$RUNTIME")" = "podman" ]; then
+  opts+=(--userns=keep-id:uid=1000,gid=1000)
+fi
+if [ -n "${GH_TOKEN:-}" ]; then
+  opts+=(-e GH_TOKEN)
+fi
+
+exec "$RUNTIME" "${opts[@]}" "${entry[@]}" "$IMAGE" "$@"

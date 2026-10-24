@@ -1,106 +1,96 @@
 # Claude Sandbox
 
-Docker configuration to run Claude Code in a containerised environment. This project provides a restricted sandbox environment for running Claude safely, preventing access to the local machine's file system and other sensitive resources. The containerized setup ensures that Claude operations are isolated from the host system, providing an additional layer of security for development and experimentation.
+Run Claude Code in a Podman or Docker container with Node.js, Go, Rust and common CLI tools. Only the current project directory and a dedicated sandbox home directory are visible inside the container.
 
-### Quick Start
+## Quick start
 
-Start container runtime, e.g. [Colima](https://github.com/abiosoft/colima) or [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+Requires Podman (recommended) or Docker, plus `make`.
 
-<details>
-
-<summary>Colima start</summary>
+Build the image:
 
 ```sh
-colima start
+make build
 ```
 
-</details>
-
-Build the image
+Copy your host Claude Code setup into the sandbox config (settings, skills, plugins, `.claude.json`, git identity):
 
 ```sh
-docker build -t claude-sandbox .
+make setup
 ```
 
-Set up local directories and configuration
+Run Claude Code from any project directory:
 
 ```sh
-mkdir -p ~/.claude-sandbox/.claude
-cp .claude.json ~/.claude-sandbox/.claude.json
+/path/to/claude-sandbox/scripts/claude-box
 ```
 
-Run the container
+Or add an alias:
 
 ```sh
-docker run -it \
-  -v $(pwd):/workspace/${PWD##*/} \
-  -v ~/.claude-sandbox/.claude:/home/appuser/.claude           \
-  -v ~/.claude-sandbox/.claude.json:/home/appuser/.claude.json \
-  --network="host"                \
-  -w /workspace/${PWD##*/}        \
-  claude-sandbox
+alias claude-box='/path/to/claude-sandbox/scripts/claude-box'
 ```
 
-This command starts the folder based on the project direct the container was
-started in so that you can use the same command for multiple projects and Claude
-will maintain separate configuration for each.
+`make run` runs the same script from the current directory.
 
-Set up shell alias go `claude-box`
+On rootless Podman the script adds `--userns=keep-id:uid=1000,gid=1000`, so files created in the project stay owned by your host user.
 
-<details>
-<summary>bash alias</summary>
+## What is mounted
 
-Add this to your `~/.bashrc` or `~/.bash_profile`:
+| Host | Container |
+| --- | --- |
+| current directory | `/workspace/<project-name>` |
+| `~/.claude-sandbox` | `/home/node` |
 
-```bash
-alias claude-box='docker run -it  \
-  -v $(pwd):/workspace/${PWD##*/} \
-  -v ~/.claude-sandbox/.claude:/home/appuser/.claude \
-  -v ~/.claude-sandbox/.claude.json:/home/appuser/.claude.json \
-  --network="host"                \
-  -w /workspace/${PWD##*/}        \
-  claude-sandbox'
+The sandbox home contains `.claude`, `.claude.json`, `.gitconfig` and `.config/gh`. Everything else on the host is outside the container. The container runs as the non-root `node` user with `--cap-drop=ALL` and `--security-opt=no-new-privileges`.
+
+Networking defaults to host networking (`--network=host`) so local services and local API proxies are reachable. Set `SANDBOX_NETWORK=bridge` when you do not need them.
+
+## Configuration
+
+`make setup` copies the following from the host:
+
+- `~/.claude/settings.json` — including the `env` block, so a third-party Anthropic-compatible endpoint and token keep working;
+- `~/.claude/skills` and `~/.claude/plugins` — including enabled plugins;
+- `~/.claude.json` — user-level MCP servers and Claude state (kept if already present);
+- `~/.gitconfig` — git identity.
+
+Re-run `make setup` after changing the host config. Skills and plugins are replaced; `.claude.json` is left alone once it exists. MCP servers added inside the container (`claude mcp add -s user`) persist in the mounted `.claude.json`.
+
+Other environment variables: `IMAGE` (default `claude-sandbox`), `CONTAINER_RUNTIME` (default `podman`, then `docker`), `CLAUDE_SANDBOX_CONFIG` (default `~/.claude-sandbox`).
+
+### GitHub and Codeberg
+
+The image includes `gh`, and the launcher reuses the host login: if `GH_TOKEN` is unset, it runs `gh auth token` on the host and forwards the result to the container as `GH_TOKEN`. The token goes through the environment, not the `podman run` command line. A host already logged in with `gh auth login` therefore needs no extra step.
+
+```sh
+claude-box --shell
+gh auth status
 ```
 
-Then reload your shell configuration:
+If the host has no `gh` login, authenticate once inside the sandbox. The token is then stored in `~/.claude-sandbox/.config/gh` and survives container restarts.
 
-```bash
-source ~/.bashrc
+```sh
+claude-box --shell
+gh auth login
 ```
 
-</details>
+Git is preconfigured through `/etc/gitconfig` to use `gh` as its HTTPS credential helper, so `git push` works without running `gh auth setup-git`. Set `GH_TOKEN` yourself to override the automatic lookup.
 
-<details>
-<summary>fish alias</summary>
+Codeberg uses a personal access token. Generate one with `repository: Read and Write` and `Specific repositories` for the target repo, then store it in the sandbox home:
 
-```fish
-function claude-box
-    docker run -it \
-        -v $(pwd):/workspace/(path basename $PWD)        \
-        -v ~/.claude-sandbox/.claude:/home/appuser/.claude \
-        -v ~/.claude-sandbox/.claude.json:/home/appuser/.claude.json \
-        -w /workspace/(path basename $PWD)               \
-        claude-sandbox $argv
-end
+```sh
+read -rsp 'Codeberg token: ' CB_TOKEN; echo
+printf 'https://YOUR_USERNAME:%s@codeberg.org\n' "$CB_TOKEN" > ~/.claude-sandbox/.git-credentials
+unset CB_TOKEN
+chmod 600 ~/.claude-sandbox/.git-credentials
+make setup
 ```
 
-</details>
+`make setup` registers git's built-in `store` helper for `https://codeberg.org`; the credentials file is mode 600 and only visible inside the sandbox. Re-run `make setup` after rotating the token, and never put the token in the remote URL.
 
-You can register custom commands
+## Security boundary
 
-```
-mkdir ~/.claude-sandbox/.claude/commands
-echo "Apply precepts.md from MCP Reader" > ~/.claude-sandbox/.claude/commands/precepts.md
-```
-
-Add you can add MCP Servers
-
-```
-claude-box mcp add -s user \
-  --transport sse markdown-reader http://host.docker.internal:8080/sse
-claude-box mcp add -s user \
-  --transport http context7 https://mcp.context7.com/mcp
-```
+This is container isolation, not a virtual machine: containers share the host kernel. The mounted project and config directories are writable from inside. Host networking also exposes services listening on localhost. The config directory holds the Claude token and a Codeberg personal access token in `.git-credentials` (mode 600); a `gh` login created inside the sandbox also stores a plaintext GitHub token in `.config/gh/hosts.yml`. When reusing the host GitHub login, the token is passed to the container as an environment variable instead. Use a VM if you need a stronger boundary against deliberately malicious code.
 
 ## Development
 
@@ -124,14 +114,13 @@ pre-commit run --all-files
 
 ## Clean up
 
-Remove the Docker image:
+Remove the image:
 
 ```sh
 make clean
 ```
 
-Remove image and all local directories. This will remove all session context and
-memory for Claude from running with this container.
+Remove the image and all sandbox config (session context and memory included):
 
 ```sh
 make clean-all
