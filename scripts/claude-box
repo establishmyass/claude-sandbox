@@ -48,4 +48,17 @@ if [ -n "${GH_TOKEN:-}" ]; then
   opts+=(-e GH_TOKEN)
 fi
 
+EGO_LINUX_REPO="${EGO_LINUX_REPO:-$HOME/Developments/ego-linux}"
+EGO_SDK_DIR="${EGO_SDK_DIR:-$HOME/Developments/ego-lite/package/ego-browser/dist/out}"
+if [ -d "$EGO_LINUX_REPO" ]; then
+  opts+=(-v "$EGO_LINUX_REPO:/opt/ego-linux:ro")
+  opts+=(-e PATH=/opt/ego-linux/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin)
+  opts+=(-e EGO_LINUX_CHROMIUM=/usr/local/bin/chromium-no-sandbox)
+  opts+=(-e "EGO_LINUX_HEADLESS=${EGO_LINUX_HEADLESS:-1}")
+fi
+if [ -f "$EGO_SDK_DIR/index.js" ]; then
+  opts+=(-v "$EGO_SDK_DIR:/opt/ego-sdk:ro")
+  opts+=(-e EGO_BROWSER_SDK=/opt/ego-sdk/index.js)
+fi
+
 exec "$RUNTIME" "${opts[@]}" "${entry[@]}" "$IMAGE" "$@"

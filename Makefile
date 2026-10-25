@@ -6,6 +6,9 @@ HOST_CLAUDE ?= $(HOME)/.claude
 # Xray release; the SHA below is for the amd64 asset. Override for arm64.
 XRAY_VERSION ?= 26.10.21
 XRAY_SHA256 ?= 0eec3ed4163c273d8c8bf821f7d219e257921cf584aa3fb970715e458e631978
+# Caddy release; the SHA below is for the amd64 asset. Override for arm64.
+CADDY_VERSION ?= 2.11.7
+CADDY_SHA256 ?= 727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b
 RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 REPO_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
@@ -18,20 +21,27 @@ help: ## Show this help message
 build: ## Build the image with Podman or Docker
 	$(RUNTIME) build -t $(IMAGE_NAME) \
 		--build-arg XRAY_VERSION=$(XRAY_VERSION) \
-		--build-arg XRAY_SHA256=$(XRAY_SHA256) .
+		--build-arg XRAY_SHA256=$(XRAY_SHA256) \
+		--build-arg CADDY_VERSION=$(CADDY_VERSION) \
+		--build-arg CADDY_SHA256=$(CADDY_SHA256) .
 
 setup: ## Copy settings, skills, plugins and git config into the sandbox
 	mkdir -p $(CONFIG_DIR)/.claude $(CONFIG_DIR)/.config/gh
 	@if [ -f $(HOST_CLAUDE)/settings.json ]; then cp -a $(HOST_CLAUDE)/settings.json $(CONFIG_DIR)/.claude/settings.json; fi
 	@if [ ! -f $(CONFIG_DIR)/.claude/.ponytail-active ]; then printf 'full' > $(CONFIG_DIR)/.claude/.ponytail-active; fi
 	rm -rf $(CONFIG_DIR)/.claude/skills $(CONFIG_DIR)/.claude/plugins
-	@if [ -d $(HOST_CLAUDE)/skills ]; then cp -a $(HOST_CLAUDE)/skills $(CONFIG_DIR)/.claude/skills; fi
+	@if [ -d $(HOST_CLAUDE)/skills ]; then cp -aL $(HOST_CLAUDE)/skills $(CONFIG_DIR)/.claude/skills; fi
 	@if [ -d $(HOST_CLAUDE)/plugins ]; then cp -a $(HOST_CLAUDE)/plugins $(CONFIG_DIR)/.claude/plugins; fi
 	@for f in installed_plugins.json known_marketplaces.json; do \
 		if [ -f $(CONFIG_DIR)/.claude/plugins/$$f ]; then \
 			sed -i "s|$(HOME)/.claude|/home/node/.claude|g" $(CONFIG_DIR)/.claude/plugins/$$f; \
 		fi; \
 	done
+	@if [ ! -d $(CONFIG_DIR)/.local/share/ego-linux ] && [ -d $(HOME)/.local/share/ego-linux ]; then \
+		mkdir -p $(CONFIG_DIR)/.local/share; \
+		cp -a $(HOME)/.local/share/ego-linux $(CONFIG_DIR)/.local/share/; \
+		find $(CONFIG_DIR)/.local/share/ego-linux \( -name 'Singleton*' -o -name 'DevToolsActivePort' \) -delete; \
+	fi
 	@if [ ! -f $(CONFIG_DIR)/.claude.json ]; then \
 		if [ -f $(HOME)/.claude.json ]; then cp $(HOME)/.claude.json $(CONFIG_DIR)/.claude.json; \
 		else cp $(REPO_DIR)/.claude.json $(CONFIG_DIR)/.claude.json; fi; \

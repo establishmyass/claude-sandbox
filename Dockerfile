@@ -9,11 +9,14 @@ FROM node:24-trixie-slim
 ARG CLAUDE_CODE_VERSION=latest
 ARG XRAY_VERSION=""
 ARG XRAY_SHA256=""
+ARG CADDY_VERSION=2.11.7
+ARG CADDY_SHA256=727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b
 
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
       build-essential \
       ca-certificates \
+      chromium \
       curl \
       dbus \
       dbus-x11 \
@@ -77,6 +80,33 @@ RUN if [ -n "${XRAY_VERSION}" ]; then \
       chmod +x /usr/local/bin/xray; \
       rm -f /tmp/xray.zip; \
     fi
+
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+      adwaita-icon-theme \
+      gdb \
+      hicolor-icon-theme \
+      librsvg2-common \
+      librsvg2-dev \
+      linux-perf \
+      shellcheck \
+      sqlite3 \
+      strace \
+      valgrind \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o /tmp/caddy.tar.gz \
+      "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_$(dpkg --print-architecture).tar.gz" \
+    && echo "${CADDY_SHA256}  /tmp/caddy.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/caddy.tar.gz -C /usr/local/bin caddy \
+    && chmod +x /usr/local/bin/caddy \
+    && rm -f /tmp/caddy.tar.gz
+
+# Chromium's own sandbox cannot start under this container's cap-drop=ALL;
+# the container is the sandbox boundary, so disable Chromium's inner sandbox.
+RUN printf '#!/bin/sh\nexec /usr/bin/chromium --no-sandbox "$@"\n' \
+      > /usr/local/bin/chromium-no-sandbox \
+    && chmod +x /usr/local/bin/chromium-no-sandbox
 
 COPY .zshrc /home/node/.zshrc
 RUN mkdir -p /workspace && chown -R node:node /home/node /workspace
